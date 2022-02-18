@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from requests import Session
-
+import pyarrow as pa
 # TODO look into read_csv use_cols option for speedups
 # TODO Fix doc comment formatting on methods
 
@@ -155,7 +155,7 @@ class ActiveTick:
             date_format = '%Y%m%d%H%M%S%f'
             parse_date = self._date_parser(date_format)
 
-            return pd.read_csv(StringIO(tick), names=names, index_col='type', dtype=dtype,
+            return pd.read_csv(StringIO(tick), names=names, index_col='datetime', dtype=dtype,
                                parse_dates=['datetime'], date_parser=parse_date)
 
         url = 'http://{host}:{port}/quoteStream?symbol={symbols}'.format(
@@ -213,8 +213,9 @@ class ActiveTick:
 
         # If the data is cached
         if self.cache and self.cache.exists(cache_key):
-            return pd.read_msgpack(self.cache.get(cache_key))
-
+            #return pd.read_msgpack(self.cache.get(cache_key))
+            context = pa.default_serialization_context()
+            return context.deserialize(self.cache.get(cache_key)) 			
         url = 'http://{host}:{port}/barData?symbol={symbol}&historyType={historyType}' \
               '&{intradayMintuesAttr}beginTime={beginTime}&endTime={endTime}'
         url = url.format(
@@ -238,7 +239,10 @@ class ActiveTick:
 
         # Cache the data
         if self.cache:
-            self.cache.set(cache_key, df.to_msgpack(compress='zlib'))
+            #self.cache.set(cache_key, df.to_msgpack(compress='zlib'))
+            context = pa.default_serialization_context()
+            self.cache.set(cache_key, context.serialize(df).to_buffer().to_pybytes())
+			
         return df
 
     def tickData(self, symbol, trades=False, quotes=True,
@@ -338,7 +342,9 @@ class ActiveTick:
 
         # Return cached data
         if self.cache and self.cache.exists(cache_key):
-                return pd.read_msgpack(self.cache.get(cache_key))
+            #return pd.read_msgpack(self.cache.get(cache_key))
+            context = pa.default_serialization_context()
+            return context.deserialize(self.cache.get(cache_key)) 	
 
         # Retrieve data not found in cache
         else:
@@ -369,7 +375,9 @@ class ActiveTick:
                     df = __get_trades(df).append(__get_quotes(df)).sort_index(axis=0)
 
         if self.cache:
-            self.cache.set(cache_key, df.to_msgpack(compress='zlib'))
+            #self.cache.set(cache_key, df.to_msgpack(compress='zlib'))
+            context = pa.default_serialization_context()
+            self.cache.set(cache_key, context.serialize(df).to_buffer().to_pybytes())
         return df
 
     def optionChain(self, symbol):
